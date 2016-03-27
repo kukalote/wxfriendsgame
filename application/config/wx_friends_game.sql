@@ -27,6 +27,7 @@ CREATE TABLE `wx_question`(
   `id` int unsigned not null comment '题目ID',
   `title` varchar(100) NOT NULL COMMENT '题目标题',
   `description` varchar(255) NOT NULL COMMENT '标题描述',
+  `answer` tinyint(1) unsigned NOT NULL COMMENT '问题正确答案',
   `create_time` datetime NOT NULL COMMENT '创建时间',
   PRIMARY KEY(`id`)
 )ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COMMENT='题目表';
