@@ -9,6 +9,7 @@ class Questions extends CI_Controller {
         session_start();
         $this->load->driver('cache');
         $this->load->model('question_model');
+        $this->load->model('user_answer_model');
     }
 
 	/**
@@ -48,8 +49,15 @@ class Questions extends CI_Controller {
             unset($questions[$k]['answer'], $questions[$k]['id']);
             foreach($questions[$k]['options'] as $kk=>$option)
             {
+                if($answers[$k]['answer']==$option['id'])
+                {
+                    $answers[$k]['order'] = $kk;
+                }
+                $questions[$k]['options'][$kk]['order'] = $kk;
                 unset($questions[$k]['options'][$kk]['id'], $questions[$k]['options'][$kk]['question_id']);
             }
+            //var_dump($questions[$k]['options']);
+            shuffle($questions[$k]['options']);
         }
 
         $questions = serialize($questions);
@@ -82,47 +90,60 @@ var_dump($questions);
         //记录答案，返回正确答案
         $params  = $this->uri->uri_to_assoc();
         $user_answer = intval($params['answer']);
-        $order       = intval($params['question_id']);
+        $question    = intval($params['question']);
 ///session_unset(); session_destroy(); exit;
         $answers = $this->cache->redis->get('room_id_'.$_SESSION['room_id'].'_answers');
         $answers = unserialize($answers);
-        $answer  = $answers[$order];
+        $answer  = $answers[$question]['order'];
+
+        $code    = 1;   //成功
+        $reason  = '成功';
+        $data    = array();
 //var_dump(time()); var_dump($_SESSION); exit;
-        //无此题目
-        if(empty($answers[$order]))
+        while(1)
         {
-            echo '无此题目';
-            exit;
+            //无此题目
+            if(empty($answers[$question]))
+            {
+                $reason = '无此题目';
+                $code   = 2;
+                break;
+            }
+
+            //题目已经回答过
+            if(!empty($_SESSION['user_answer'][$question] ))
+            {
+                $reason = '题目已经回答过';
+                $code   = 2;
+                break;
+            }
+
+
+            //答案比较
+            if($user_answer==$answer['answer'])
+            {
+                $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>1, 'answer_time'=>time());
+                $_SESSION['user_answer'][$question] = $user_answer;
+                $data = array();
+            }
+            else
+            {
+                $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>2, 'answer_time'=>time());
+                $_SESSION['user_answer'][$question] = $user_answer;
+                $code = 2;
+                $data = array();//如果失败, 正确答案是。。。
+            }
+
+            //如果是最后一道题,则插入数据库
+            if(count($answers)==count($_SESSION['user_answer']))
+            {
+                $this->db->insert_batch('user_answer', $_SESSION['user_answer']);
+            }
+            break;
         }
 
-        //题目已经回答过
-        if(!empty($_SESSION['user_answer'][$order] ))
-        {
-            echo '题目已经回答过';
-            exit;
-        }
 
-
-        //答案比较
-        if($user_answer==$answer['answer'])
-        {
-            $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>1, 'answer_time'=>time());
-            $_SESSION['user_answer'][$order] = $user_answer;
-            $result = array('result'=>'succ', 'code'=>1, 'msg'=>'');
-        }
-        else
-        {
-            $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>2, 'answer_time'=>time());
-            $_SESSION['user_answer'][$order] = $user_answer;
-            $result = array('result'=>'fail', 'code'=>2, 'msg'=>'');
-        }
-
-        //如果是最后一道题,则插入数据库
-        if(count($answers)==count($_SESSION['user_answer']))
-        {
-            $this->db->insert_batch('user_answer', $_SESSION['user_answer']);
-        }
-
+        $result = array('data'=>$data, 'code'=>$code, 'msg'=>$reason);
         echo json_encode($result);
         exit;
     }
@@ -133,8 +154,32 @@ var_dump($questions);
      */
     public function answerOrder()
     {
-        $_SESSION['room_id'];
-        $where = 'room_id='.$_SESSION['room_id'];
-        $this->db->getAnswers($condition);
+        $right_answer_num = 0;
+        $all_money        = 100;
+
+        //清空session 和 redis
+        $this->cache->redis->delete('room_id_'.$_SESSION['room_id'].'_questions');
+        $this->cache->redis->delete('room_id_'.$_SESSION['room_id'].'_answers');
+        session_unset();
+        session_destroy();
+
+        //查询数据
+        $where  = ' AND room_id='.$_SESSION['room_id'];
+        $result = $this->user_answer_model->sortOrder($where);
+
+        $all_right_answer = array_column($result, 'num');
+        $right_answer_num = array_sum($all_right_answer);   //正确答案总和
+
+        foreach($result as $k=>$v)
+        {
+            $result[$k]['percent'] = round(($v['num']*100)/$right_answer_num);
+            $result[$k]['money']   = round(($all_money*$result[$k]['percent']))/100;
+        }
+
+
+
+        var_dump($result);
+        exit;
+
     }
 }
