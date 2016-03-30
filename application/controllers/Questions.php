@@ -51,19 +51,21 @@ class Questions extends CI_Controller {
             {
                 if($answers[$k]['answer']==$option['id'])
                 {
-                    $answers[$k]['order'] = $kk;
+                    $answers[$k]['order'] = $kk+1;
                 }
-                $questions[$k]['options'][$kk]['order'] = $kk;
+                $questions[$k]['options'][$kk]['order'] = $kk+1;
                 unset($questions[$k]['options'][$kk]['id'], $questions[$k]['options'][$kk]['question_id']);
             }
             //var_dump($questions[$k]['options']);
             shuffle($questions[$k]['options']);
         }
+        //var_dump($questions, $answers);
 
         $questions = serialize($questions);
         $answers   = serialize($answers);
         $this->cache->redis->save('room_id_'.$room_id.'_questions', $questions, 10*60);
         $this->cache->redis->save('room_id_'.$room_id.'_answers',   $answers, 10*60);
+        $this->load->view('room');
     }
 
     /**
@@ -71,15 +73,13 @@ class Questions extends CI_Controller {
      */
     public function questionProcess()
     {
+        $data = array();
         $questions = $this->cache->redis->get('room_id_'.$_SESSION['room_id'].'_questions');
         $questions = unserialize($questions);
-var_dump($questions);
         $questions = json_encode($questions);
-
-
-        exit;
+        $data['questions'] = $questions;
         //从数据库中抓取5道题
-        $this->load->view('welcome_message');
+        $this->load->view('question_process', $data);
     }
 
     /**
@@ -96,7 +96,7 @@ var_dump($questions);
         $answers = unserialize($answers);
         $answer  = $answers[$question]['order'];
 
-        $code    = 1;   //成功
+        $code    = 2;           //失败
         $reason  = '成功';
         $data    = array();
 //var_dump(time()); var_dump($_SESSION); exit;
@@ -106,7 +106,6 @@ var_dump($questions);
             if(empty($answers[$question]))
             {
                 $reason = '无此题目';
-                $code   = 2;
                 break;
             }
 
@@ -114,24 +113,23 @@ var_dump($questions);
             if(!empty($_SESSION['user_answer'][$question] ))
             {
                 $reason = '题目已经回答过';
-                $code   = 2;
-                break;
+                //break;
             }
 
 
             //答案比较
-            if($user_answer==$answer['answer'])
+            if($user_answer==$answer)
             {
                 $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>1, 'answer_time'=>time());
                 $_SESSION['user_answer'][$question] = $user_answer;
-                $data = array();
+                $data = array('answer'=>$answer, 'is_true'=>1);         //如果失败, 正确答案是。。。
             }
             else
             {
                 $user_answer = array('room_id'=>$_SESSION['room_id'],'user_id'=>$_SESSION['user_id'], 'question_id'=>$answer['question_id'], 'answer'=>$answer['answer'], 'is_true'=>2, 'answer_time'=>time());
                 $_SESSION['user_answer'][$question] = $user_answer;
                 $code = 2;
-                $data = array();//如果失败, 正确答案是。。。
+                $data = array('answer'=>$answer, 'is_true'=>2);         //如果失败, 正确答案是。。。
             }
 
             //如果是最后一道题,则插入数据库
